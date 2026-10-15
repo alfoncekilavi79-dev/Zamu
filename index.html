@@ -137,10 +137,10 @@ table.roster select{padding:6px 2px;font-size:13px;width:66px}
       <button class="btn" id="lBtn" disabled>Log in</button>
       <div id="lMsg"></div>
       <div class="hint">Your manager creates your account. You stay logged in on this phone until you log out.</div>
-      <button class="linkbtn" id="toOwner">Owner login</button>
+      <button class="linkbtn" id="toOwner">Owner or company login</button>
     </div>
     <div class="card" id="ownerLogin" hidden>
-      <h2>Owner log in</h2>
+      <h2>Owner or company log in</h2>
       <label for="oEmail">Email</label><input id="oEmail" type="email" autocomplete="username">
       <label for="oPass">Password</label><input id="oPass" type="password" autocomplete="current-password">
       <button class="btn" id="oBtn">Log in</button>
@@ -297,7 +297,7 @@ const CFG=window.ZAMU_CONFIG||{};
 const configured=!!(window.supabase&&CFG.SUPABASE_URL&&CFG.SUPABASE_ANON_KEY&&!/PASTE_/.test(CFG.SUPABASE_URL)&&!/PASTE_/.test(CFG.SUPABASE_ANON_KEY));
 const sb=configured?window.supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}}):null;
 
-const S={admin:false,token:null,tab:'',emp:null,empNotices:null,sv:null,
+const S={admin:false,company:false,token:null,tab:'',emp:null,empNotices:null,sv:null,
   data:{shops:[],staff:[],roster:[],punches:[],notices:[],rmap:{},settings:{maxOff:2,noticeDays:3}},
   names:[],boardShop:'all',rWeek:0,rShop:null,confirm:null,cmsg:null,err:null,
   photoView:null,shuffle:null,pinFor:null,busy:false,working:false,loaded:false,loginPeople:false};
@@ -346,6 +346,7 @@ function setData(shops,staff,roster,punches,notices){
 }
 
 async function loadAdmin(){
+  try{S.company=(await rpc('my_role'))==='company'}catch(e){S.company=false}
   const nowv=await rpc('server_now');setSv(nowv.date,nowv.time);
   const td=pd(today());const monthStart=today().slice(0,8)+'01';
   const rf=dkey(addDays(td,-7))<monthStart?dkey(addDays(td,-7)):monthStart;
@@ -587,14 +588,15 @@ function renderSetup(){
     '<div class="actions" style="margin-top:10px"><button class="btn small" data-act="shapply"'+(S.working?' disabled':'')+'>'+(S.working?'Working...':'Apply')+'</button><button class="btn small ghost" data-act="shpreview">Shuffle again</button><button class="btn small ghost" data-act="shcancel">Cancel</button></div></div>'):'';
 }
 function renderChrome(){
-  const md=mode();const tabs=TABS[md];
+  const md=mode();let tabs=TABS[md];
+  if(md==='admin'&&S.company)tabs=tabs.filter(t=>t!=='setup');
   if(!tabs.includes(S.tab))S.tab=tabs[0];
   $('#tabs').innerHTML=tabs.length>1?tabs.map(t=>'<button role="tab" data-tab="'+t+'" aria-selected="'+(t===S.tab)+'">'+(md==='mgr'&&t==='board'?'Shop today':TABNAMES[t])+'</button>').join(''):'';
   $('#tabs').hidden=tabs.length<2;
   ['login','me','week','board','roster','notices','setup'].forEach(x=>{$('#tab-'+x).hidden=x!==S.tab});
   const bar=$('#whoBar');
   if(md==='mgr'||md==='emp'){const e=S.emp.staff;bar.hidden=false;bar.innerHTML='<div><b>'+esc(e.name)+'</b><div class="sub">'+esc(e.role)+' · '+esc(e.shop)+'</div></div><button class="btn small ghost" data-act="logout">Log out</button>'}
-  else if(md==='admin'){bar.hidden=false;bar.innerHTML='<div><b>Owner view</b><div class="sub">All shops</div></div><button class="btn small ghost" data-act="logout">Log out</button>'}
+  else if(md==='admin'){bar.hidden=false;bar.innerHTML='<div><b>'+(S.company?'Company view':'Owner view')+'</b><div class="sub">All shops</div></div><button class="btn small ghost" data-act="logout">Log out</button>'}
   else bar.hidden=true;
   const b=$('#banner');
   if(!configured)b.innerHTML='<div class="msg warn" style="margin:0 0 14px">This page is not connected yet. Add the config.js file with your two Supabase values (see GUIDE.md, step 6).</div>';
@@ -642,7 +644,7 @@ async function ownerLogin(){
   }finally{$('#oBtn').disabled=false}
 }
 async function logout(){
-  if(S.admin){await sb.auth.signOut();S.admin=false}
+  if(S.admin){await sb.auth.signOut();S.admin=false;S.company=false}
   S.token=null;store.del('zamu.token');S.emp=null;S.tab='';S.cmsg=null;S.photoView=null;
   await loadData();
 }
