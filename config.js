@@ -1,0 +1,4 @@
+window.ZAMU_CONFIG = {
+  SUPABASE_URL: "https://xjnbyklmevcbpjimbhfd.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqbmJ5a2xtZXZjYnBqaW1iaGZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwMTAwNTAsImV4cCI6MjEwNzU4NjA1MH0.O1PAK3utKVmKXfXlb7vZ4AjriD5jqOpP4vfrzZLkAlM"
+};

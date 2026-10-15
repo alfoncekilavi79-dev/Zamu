@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Zamu Shift Tracker</title>
+<meta name="theme-color" content="#0E6B57">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#F2F3EF; --surface:#FFFFFF; --fg:#18211D; --muted:#5E6B64; --line:#D9DDD6;
+  --accent:#0E6B57; --accent-fg:#FFFFFF;
+  --ok:#0E6B57; --ok-bg:#DDF0E8; --warn:#8F5200; --warn-bg:#FBEBCB;
+  --bad:#B3261E; --bad-bg:#F8DAD7; --info:#38507A; --info-bg:#E6EAF2;
+  --display:"Bricolage Grotesque","Trebuchet MS",sans-serif;
+  --body:"IBM Plex Sans",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root{
+  color-scheme:dark;
+  --bg:#101714; --surface:#18221D; --fg:#E6EDE8; --muted:#92A199; --line:#2A372F;
+  --accent:#4FC9A5; --accent-fg:#0A1A14;
+  --ok:#6FD6B3; --ok-bg:#16352B; --warn:#F2B658; --warn-bg:#3A2C10;
+  --bad:#FF8F85; --bad-bg:#40191A; --info:#9DB5E8; --info-bg:#1E2840}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.45;
+  padding-top:max(0px,env(safe-area-inset-top,0px));padding-bottom:max(40px,env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:680px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:18px 0 14px;flex-wrap:wrap}
+h1{font-family:var(--display);font-size:28px;line-height:1;margin:0;letter-spacing:-.02em}
+.tag{color:var(--muted);font-size:13px;margin-top:4px}
+.clock{text-align:right}
+.clock .t{font-family:var(--mono);font-size:26px;line-height:1}
+.clock .d{color:var(--muted);font-size:13px;margin-top:2px}
+nav{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;overflow-x:auto}
+nav button{background:none;border:0;color:var(--muted);font:600 14px var(--body);padding:10px 14px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+nav button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;margin-bottom:14px}
+h2{font-family:var(--display);font-size:18px;margin:0 0 10px;letter-spacing:-.01em}
+h3{font-family:var(--display);font-size:15px;margin:0}
+label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+label:first-child{margin-top:0}
+input,select,textarea{width:100%;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:10px 11px;min-width:0}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pin{font-family:var(--mono);letter-spacing:.4em;font-size:20px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{display:block;width:100%;background:var(--accent);color:var(--accent-fg);border:0;border-radius:5px;font:600 16px var(--body);padding:13px;cursor:pointer;margin-top:14px}
+.btn.out{background:var(--fg);color:var(--bg)}
+.btn.small{display:inline-block;width:auto;font-size:13px;padding:7px 12px;margin:0}
+.btn.ghost{background:none;color:var(--fg);border:1px solid var(--line)}
+.btn.danger{background:none;color:var(--bad);border:1px solid var(--bad)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.linkbtn{background:none;border:0;color:var(--accent);font:600 14px var(--body);padding:8px 0;cursor:pointer;text-decoration:underline}
+.msg{margin-top:12px;padding:10px 12px;border-radius:5px;font-size:14px}
+.msg.ok{background:var(--ok-bg);color:var(--ok)}
+.msg.warn{background:var(--warn-bg);color:var(--warn)}
+.msg.bad{background:var(--bad-bg);color:var(--bad)}
+.msg.info{background:var(--info-bg);color:var(--info)}
+.shiftline{font-family:var(--mono);font-size:14px;color:var(--muted);margin-top:6px}
+.bigshift{font-family:var(--display);font-size:22px;margin:2px 0 0}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 8px;text-align:center}
+.tile b{display:block;font-family:var(--mono);font-size:24px;line-height:1.1}
+.tile span{font-size:12px;color:var(--muted)}
+.tile.warn b{color:var(--warn)}.tile.bad b{color:var(--bad)}.tile.ok b{color:var(--ok)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.fchip{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:99px;padding:6px 12px;font:500 13px var(--body);cursor:pointer}
+.fchip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.shophead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:18px 0 6px;flex-wrap:wrap}
+.shophead span{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.row:first-of-type{border-top:0}
+.who{min-width:0;flex:1 1 140px}.who b{display:block;overflow-wrap:anywhere}
+.sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.meta{text-align:right;flex-shrink:0}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:3px 9px;border-radius:99px}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}.pill.info{background:var(--info-bg);color:var(--info)}
+.pill.mute{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:6px 6px 6px 0}
+td{padding:8px 6px 8px 0;border-top:1px solid var(--line)}
+td.n,th.n{text-align:right;font-family:var(--mono);padding-right:0}
+.scroll{overflow-x:auto}
+table.roster{min-width:560px}
+table.roster th,table.roster td{padding:6px 4px;text-align:center}
+table.roster th:first-child,table.roster td:first-child{text-align:left;position:sticky;left:0;background:var(--surface);min-width:112px;z-index:1}
+table.roster th.today{color:var(--accent)}
+table.roster select{padding:6px 2px;font-size:13px;width:66px}
+.notice{padding:12px 0;border-top:1px solid var(--line)}
+.notice:first-of-type{border-top:0}
+.notice p{margin:6px 0 4px;overflow-wrap:anywhere;white-space:pre-wrap}
+.empty{color:var(--muted);padding:6px 0}
+.days{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.days label{display:flex;align-items:center;gap:5px;margin:0;font-weight:500;border:1px solid var(--line);border-radius:5px;padding:7px 9px;cursor:pointer;background:var(--bg)}
+.days input{width:auto;margin:0}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hint{font-size:12px;color:var(--muted);margin-top:6px}
+.who-bar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 14px;flex-wrap:wrap}
+.photos{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:8px}
+.photos img{width:100%;border-radius:5px;border:1px solid var(--line)}
+.inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;width:100%}
+.inline select{width:auto;flex:1 1 130px}
+.inline input{width:100px}
+#camBox{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px}
+#camBox video{width:100%;max-width:420px;border-radius:8px;background:#000;transform:scaleX(-1)}
+#camBox .actions{width:100%;max-width:420px}
+#camBox .btn{margin:0;flex:1}
+#camBox p{color:#fff;margin:0;text-align:center;font-size:14px}
+@media (max-width:420px){.tiles{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Zamu</h1><div class="tag">Shift tracker for your shops</div></div>
+    <div class="clock"><div class="t" id="hClock">--:--</div><div class="d" id="hDate"></div></div>
+  </header>
+  <div id="banner"></div>
+  <div class="who-bar" id="whoBar" hidden></div>
+  <nav role="tablist" id="tabs"></nav>
+
+  <section id="tab-login" hidden>
+    <div class="card" id="staffLogin">
+      <h2>Staff log in</h2>
+      <label for="lShop">Shop</label><select id="lShop"></select>
+      <label for="lStaff">Your name</label><select id="lStaff"></select>
+      <label for="lPin">PIN</label>
+      <input id="lPin" class="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="••••">
+      <button class="btn" id="lBtn" disabled>Log in</button>
+      <div id="lMsg"></div>
+      <div class="hint">Your manager creates your account. You stay logged in on this phone until you log out.</div>
+      <button class="linkbtn" id="toOwner">Owner login</button>
+    </div>
+    <div class="card" id="ownerLogin" hidden>
+      <h2>Owner log in</h2>
+      <label for="oEmail">Email</label><input id="oEmail" type="email" autocomplete="username">
+      <label for="oPass">Password</label><input id="oPass" type="password" autocomplete="current-password">
+      <button class="btn" id="oBtn">Log in</button>
+      <div id="oMsg"></div>
+      <button class="linkbtn" id="toStaff">Staff login</button>
+    </div>
+  </section>
+
+  <section id="tab-me" hidden>
+    <div class="card">
+      <h2>Today</h2>
+      <div class="bigshift" id="meShift"></div>
+      <div class="shiftline" id="meSub"></div>
+      <button class="btn" id="meBtn" disabled>Clock in with photo</button>
+      <div class="hint">The camera opens and you take a photo of yourself at the shop. The time is recorded by the server, not your phone.</div>
+      <div id="meMsg"></div>
+    </div>
+  </section>
+
+  <section id="tab-week" hidden>
+    <div class="card"><h2>My next 7 days</h2><div id="weekList"></div></div>
+    <div class="card">
+      <h2>Post an off day</h2>
+      <div class="msg info" style="margin:0 0 4px" id="offRule"></div>
+      <label for="offDate">Date</label><input id="offDate" type="date">
+      <button class="btn" id="offBtn">Post off day</button>
+      <div id="offMsg"></div>
+    </div>
+    <div class="card"><h2>My upcoming off days</h2><div id="myOffs"></div></div>
+  </section>
+
+  <section id="tab-board" hidden>
+    <div id="photoView"></div>
+    <div class="tiles" id="tiles"></div>
+    <div class="chips" id="boardFilter"></div>
+    <div id="board"></div>
+    <div class="card" style="margin-top:18px">
+      <h2>This month</h2>
+      <div class="scroll" id="report"></div>
+    </div>
+  </section>
+
+  <section id="tab-roster" hidden>
+    <div class="card">
+      <div id="rShopWrap"><label for="rShop">Shop</label><select id="rShop"></select></div>
+      <div class="actions" style="margin-top:12px;justify-content:space-between">
+        <button class="btn small ghost" id="rPrev">Earlier</button>
+        <b id="rTitle"></b>
+        <button class="btn small ghost" id="rNext">Later</button>
+      </div>
+      <div class="hint">A dash means the person's usual shift. Opening and closing times come from the shop's hours.</div>
+    </div>
+    <div class="card"><div class="scroll" id="rGrid"></div></div>
+    <div class="card">
+      <h2>Auto-fill this week</h2>
+      <div class="hint" style="margin:0 0 8px">Randomly splits staff into opening and closing each day. Off days stay as they are. Past days are left alone.</div>
+      <button class="btn" id="rFill">Auto-fill week</button>
+      <div id="rMsg"></div>
+    </div>
+  </section>
+
+  <section id="tab-notices" hidden>
+    <div class="card" id="composer" hidden>
+      <h2>Post to the team</h2>
+      <label for="nShop">Who sees it</label><select id="nShop"></select>
+      <label for="nText">Message</label>
+      <textarea id="nText" rows="3" maxlength="500" placeholder="e.g. Stock count on Saturday after closing."></textarea>
+      <button class="btn" id="nPost">Post</button>
+    </div>
+    <div class="card"><h2>Notices</h2><div id="noticeList"></div></div>
+    <div class="card"><h2>Off days coming up</h2><div id="offDays"></div></div>
+  </section>
+
+  <section id="tab-setup" hidden>
+    <div class="card">
+      <h2>Off day rules</h2>
+      <div class="grid2">
+        <div><label for="stMax">Offs per month</label><input id="stMax" type="number" min="0" max="10" inputmode="numeric"></div>
+        <div><label for="stNotice">Notice (days ahead)</label><input id="stNotice" type="number" min="0" max="60" inputmode="numeric"></div>
+      </div>
+      <button class="btn" id="stSave">Save rules</button>
+      <div id="stMsg"></div>
+    </div>
+    <div class="card">
+      <h2>Add a shop</h2>
+      <label for="sName">Shop name</label><input id="sName" placeholder="e.g. Githurai 45">
+      <div class="grid2">
+        <div><label for="sOpen">Opens</label><input id="sOpen" type="time" value="06:30"></div>
+        <div><label for="sClose">Closes</label><input id="sClose" type="time" value="22:30"></div>
+      </div>
+      <div class="grid2">
+        <div><label for="sMid">Handover time</label><input id="sMid" type="time" value="14:30"></div>
+        <div><label for="sGrace">Grace (minutes)</label><input id="sGrace" type="number" min="0" max="60" value="10" inputmode="numeric"></div>
+      </div>
+      <div class="hint">Opening shift runs from open to handover. Closing shift runs from handover to close.</div>
+      <button class="btn" id="sAdd">Add shop</button>
+      <div id="sMsg"></div>
+    </div>
+    <div class="card">
+      <h2>Add an employee</h2>
+      <label for="eName">Name</label><input id="eName" placeholder="Full name">
+      <div class="grid2">
+        <div><label for="eShop">Shop</label><select id="eShop"></select></div>
+        <div><label for="eRole">Role</label><select id="eRole"></select></div>
+      </div>
+      <div class="grid2">
+        <div><label for="eStart">Usual start</label><input id="eStart" type="time" value="06:30"></div>
+        <div><label for="eEnd">Usual end</label><input id="eEnd" type="time" value="19:30"></div>
+      </div>
+      <label>Usual weekly off days</label>
+      <div class="days" id="eOff"></div>
+      <label for="ePin">PIN (4 digits)</label>
+      <input id="ePin" class="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••">
+      <button class="btn" id="eAdd">Add employee</button>
+      <div id="eMsg"></div>
+    </div>
+    <div class="card">
+      <h2>Shuffle staff between shops</h2>
+      <div class="hint" style="margin:0 0 8px">Deals people out to shops at random, as evenly as possible.</div>
+      <div class="days"><label><input type="checkbox" id="shMgr"> Include managers</label></div>
+      <button class="btn ghost" id="shPrev">Preview random shuffle</button>
+      <div id="shOut"></div>
+    </div>
+    <div class="card"><h2>Shops and staff</h2><div id="manage"></div></div>
+    <div class="card">
+      <h2>Clean up photos</h2>
+      <div class="hint" style="margin:0 0 8px">Clock-in photos use storage. Delete the old ones now and then.</div>
+      <div class="inline"><select id="purgeDays"><option value="30">Older than 30 days</option><option value="60">Older than 60 days</option><option value="90">Older than 90 days</option></select>
+      <button class="btn small danger" id="purgeBtn">Delete photos</button></div>
+      <div id="purgeMsg"></div>
+    </div>
+  </section>
+</div>
+
+<div id="camBox" hidden>
+  <video id="camVideo" playsinline muted autoplay></video>
+  <p>Look at the camera, then tap Take photo.</p>
+  <div class="actions"><button class="btn ghost" id="camCancel" style="color:#fff;border-color:#fff">Cancel</button><button class="btn" id="camSnap">Take photo</button></div>
+</div>
+
+<script>
+(function(){
+const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const ROLES=['Manager','Assistant manager','Cashier','Agent','Attendant'];
+const KINDS={open:'Opening',close:'Closing',full:'Full day',off:'Off',usual:'Usual shift'};
+const TABNAMES={login:'Log in',me:'Clock in',week:'My week',board:'Today',roster:'Roster',notices:'Notices',setup:'Setup'};
+const TABS={admin:['board','roster','notices','setup'],mgr:['me','board','roster','week','notices'],emp:['me','week','notices'],login:['login']};
+
+const CFG=window.ZAMU_CONFIG||{};
+const configured=!!(window.supabase&&CFG.SUPABASE_URL&&CFG.SUPABASE_ANON_KEY&&!/PASTE_/.test(CFG.SUPABASE_URL)&&!/PASTE_/.test(CFG.SUPABASE_ANON_KEY));
+const sb=configured?window.supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}}):null;
+
+const S={admin:false,token:null,tab:'',emp:null,empNotices:null,sv:null,
+  data:{shops:[],staff:[],roster:[],punches:[],notices:[],rmap:{},settings:{maxOff:2,noticeDays:3}},
+  names:[],boardShop:'all',rWeek:0,rShop:null,confirm:null,cmsg:null,err:null,
+  photoView:null,shuffle:null,pinFor:null,busy:false,working:false,loaded:false,loginPeople:false};
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad=n=>String(n).padStart(2,'0');
+const dkey=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const pd=s=>{const p=String(s).slice(0,10).split('-').map(Number);return new Date(p[0],p[1]-1,p[2])};
+const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const lab=s=>{const d=pd(s);return DAYS[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()]};
+const mins=t=>{const p=String(t||'0:0').split(':').map(Number);return p[0]*60+(p[1]||0)};
+const fmtMin=n=>pad(Math.floor(n/60))+':'+pad(n%60);
+const t5=t=>String(t||'').slice(0,5);
+const hhmm=iso=>{const d=new Date(iso);return pad(d.getHours())+':'+pad(d.getMinutes())};
+const byName=(a,b)=>String(a.name).localeCompare(String(b.name));
+const isMgr=s=>!!s&&(s.role==='Manager'||s.role==='Assistant manager');
+const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+
+/* server time: every status uses the server's clock, never the phone's */
+const today=()=>S.sv?S.sv.date:dkey(new Date());
+const curMin=()=>{if(!S.sv){const d=new Date();return d.getHours()*60+d.getMinutes()}return (S.sv.min+Math.floor((Date.now()-S.sv.at)/60000))%1440};
+const setSv=(date,time)=>{S.sv={date:String(date).slice(0,10),min:mins(time),at:Date.now()}};
+const mondayOf=off=>{const d=pd(today());return addDays(d,-((d.getDay()+6)%7)+off*7)};
+
+/* ---------- server calls ---------- */
+async function rpc(name,args){
+  const r=await sb.rpc(name,args||{});
+  if(r.error)throw new Error(r.error.message||'Something went wrong');
+  return r.data;
+}
+async function q(p){const r=await p;if(r.error)throw new Error(r.error.message);return r.data}
+
+/* normalisers: database rows to the shapes the screens use */
+const nShop=r=>({id:r.id,name:r.name,open:t5(r.open_t),close:t5(r.close_t),mid:t5(r.mid_t),grace:r.grace});
+const nStaff=r=>({id:r.id,name:r.name,shopId:r.shop_id,role:r.role,start:t5(r.usual_start),end:t5(r.usual_end),off:r.off_days||[]});
+const nRoster=r=>({id:String(r.day).slice(0,10)+'_'+r.staff_id,staffId:r.staff_id,date:String(r.day).slice(0,10),kind:r.kind,start:t5(r.start_t),end:t5(r.end_t),byStaff:!!r.by_staff});
+const nPunch=r=>({id:String(r.day).slice(0,10)+'_'+r.staff_id,staffId:r.staff_id,date:String(r.day).slice(0,10),inAt:r.in_at,outAt:r.out_at,lateMin:r.late_min||0});
+const nNotice=r=>({id:r.id,text:r.body,type:r.type,shopId:r.shop_id||'all',at:Date.parse(r.created_at)});
+function setData(shops,staff,roster,punches,notices){
+  const d=S.data;
+  d.shops=shops;d.staff=staff;d.roster=roster;d.punches=punches;
+  if(notices)d.notices=notices;
+  d.rmap={};roster.forEach(r=>{d.rmap[r.id]=r});
+}
+
+async function loadAdmin(){
+  const nowv=await rpc('server_now');setSv(nowv.date,nowv.time);
+  const td=pd(today());const monthStart=today().slice(0,8)+'01';
+  const rf=dkey(addDays(td,-7))<monthStart?dkey(addDays(td,-7)):monthStart;
+  const res=await Promise.all([
+    q(sb.from('shops').select('*').order('created_at')),
+    q(sb.from('staff').select('id,name,shop_id,role,usual_start,usual_end,off_days').eq('active',true)),
+    q(sb.from('roster').select('*').gte('day',rf)),
+    q(sb.from('punches').select('*').gte('day',monthStart)),
+    q(sb.from('notices').select('*').order('created_at',{ascending:false}).limit(100)),
+    q(sb.from('settings').select('*').eq('id',1).single())
+  ]);
+  setData(res[0].map(nShop),res[1].map(nStaff),res[2].map(nRoster),res[3].map(nPunch),res[4].map(nNotice));
+  S.data.settings={maxOff:res[5].max_off,noticeDays:res[5].notice_days};
+}
+async function loadEmp(){
+  const st=await rpc('emp_state',{p_token:S.token});
+  S.emp=st;setSv(st.today,st.now);
+  S.empNotices=await rpc('emp_notices',{p_token:S.token});
+  if(st.staff.is_mgr){
+    const td=pd(today());const monthStart=today().slice(0,8)+'01';
+    const rf=dkey(addDays(td,-7))<monthStart?dkey(addDays(td,-7)):monthStart;
+    const d=await rpc('emp_shop_data',{p_token:S.token,p_from:rf});
+    setData(d.shop?[nShop(d.shop)]:[],d.staff.map(nStaff),d.roster.map(nRoster),d.punches.map(nPunch),null);
+  }
+}
+async function loadLoginList(){
+  try{S.names=await rpc('public_staff');S.loginPeople=true}catch(e){S.err=e.message}
+}
+async function loadData(){
+  if(!sb)return;
+  try{
+    if(S.admin)await loadAdmin();
+    else if(S.token)await loadEmp();
+    else await loadLoginList();
+    S.err=null;S.loaded=true;
+  }catch(e){
+    if(/not logged in/i.test(e.message)){S.token=null;store.del('zamu.token');S.emp=null}
+    else S.err=e.message;
+  }
+  renderAll();
+}
+
+/* ---------- data helpers ---------- */
+const shopOf=id=>S.data.shops.find(s=>s.id===id);
+const staffOf=id=>S.data.staff.find(s=>s.id===id);
+const punchFor=(sid,date)=>S.data.punches.find(p=>p.staffId===sid&&p.date===date);
+function shopTimes(shop){
+  const o=shop.open||'08:00',c=shop.close||'18:00';
+  const m=shop.mid||fmtMin(Math.round((mins(o)+mins(c))/2/30)*30);
+  return {open:o,mid:m,close:c};
+}
+function shiftOn(st,date){
+  const r=S.data.rmap[date+'_'+st.id];
+  if(r)return r.kind==='off'?{off:true,kind:'off'}:{start:r.start,end:r.end,kind:r.kind};
+  if((st.off||[]).includes(pd(date).getDay()))return {off:true,kind:'off'};
+  return {start:st.start,end:st.end,kind:'usual'};
+}
+const shiftText=sh=>sh.off?'Off':(KINDS[sh.kind]||'')+' '+sh.start+' to '+sh.end;
+function status(st){
+  const shop=shopOf(st.shopId)||{};const grace=shop.grace!=null?shop.grace:10;
+  const sh=shiftOn(st,today());
+  if(sh.off)return {k:'off',label:'Off today',cls:'mute',sh};
+  const p=punchFor(st.id,today());const n=curMin();const start=mins(sh.start);
+  if(p&&p.outAt)return {k:'done',label:'Finished',cls:'info',p,sh};
+  if(p&&p.inAt)return p.lateMin>0?{k:'late',label:'Late '+p.lateMin+' min',cls:'warn',p,sh}:{k:'on',label:'On shift',cls:'ok',p,sh};
+  if(n<start)return {k:'soon',label:'Starts '+sh.start,cls:'mute',sh};
+  if(n<=start+grace)return {k:'due',label:'Due now',cls:'info',sh};
+  return {k:'missing',label:'Not in, '+(n-start)+' min late',cls:'bad',sh};
+}
+function mode(){
+  if(S.admin)return 'admin';
+  if(S.token&&S.emp)return S.emp.staff.is_mgr?'mgr':'emp';
+  return 'login';
+}
+const opt=(list,sel,extra)=>(extra||'')+list.map(x=>'<option value="'+esc(x.id)+'"'+(x.id===sel?' selected':'')+'>'+esc(x.name)+'</option>').join('');
+const flash=(sel,cls,text)=>{$(sel).innerHTML='<div class="msg '+cls+'">'+esc(text)+'</div>'};
+const myShopId=()=>S.emp&&S.emp.staff.shop_id;
+
+/* ---------- render ---------- */
+function renderLogin(){
+  const shops=[];S.names.forEach(n=>{if(!shops.find(s=>s.id===n.shop_id))shops.push({id:n.shop_id,name:n.shop})});
+  const shopSel=$('#lShop'),staffSel=$('#lStaff');
+  if(!shops.length){shopSel.innerHTML='<option>No shops yet</option>';staffSel.innerHTML='';$('#lBtn').disabled=true;return}
+  let shopId=shopSel.value;if(!shops.find(s=>s.id===shopId))shopId=shops[0].id;
+  shopSel.innerHTML=opt(shops,shopId);
+  const list=S.names.filter(n=>n.shop_id===shopId);
+  let sid=staffSel.value;if(!list.find(s=>s.id===sid))sid=list[0]&&list[0].id;
+  staffSel.innerHTML=list.length?opt(list,sid):'<option value="">No employees in this shop</option>';
+  $('#lBtn').disabled=!(staffSel.value&&$('#lPin').value.length===4);
+}
+function renderMe(){
+  const e=S.emp;if(!e)return;
+  const sh=e.shift;const p=e.punch;
+  const shift=sh.off?{off:true}:{kind:sh.kind,start:sh.start,end:sh.end};
+  $('#meShift').textContent=sh.off?'You are off today':shiftText(shift);
+  $('#meSub').textContent=e.staff.shop+' · '+e.staff.role;
+  const btn=$('#meBtn');
+  if(p&&p.out_at){btn.textContent='Shift complete';btn.className='btn';btn.disabled=true}
+  else if(p&&p.in_at){btn.textContent='Clock out with photo';btn.className='btn out';btn.disabled=S.busy}
+  else{btn.textContent='Clock in with photo';btn.className='btn';btn.disabled=!!sh.off||S.busy}
+  let html='';
+  if(S.cmsg)html='<div class="msg '+S.cmsg.cls+'">'+esc(S.cmsg.text)+'</div>';
+  else if(sh.off&&!(p&&p.in_at))html='<div class="msg info">Enjoy your day off.</div>';
+  else if(p&&p.out_at)html='<div class="msg info">In '+hhmm(p.in_at)+', out '+hhmm(p.out_at)+'.</div>';
+  else if(p&&p.in_at)html='<div class="msg ok">You clocked in at '+hhmm(p.in_at)+(p.late_min>0?' ('+p.late_min+' min late)':'')+'.</div>';
+  $('#meMsg').innerHTML=html;
+}
+function renderWeek(){
+  const e=S.emp;if(!e)return;
+  $('#weekList').innerHTML=e.week.map((w,i)=>{
+    const sh=w.shift;const txt=sh.off?'Off':(KINDS[sh.kind]||'')+' '+sh.start+' to '+sh.end;
+    return '<div class="row"><div class="who"><b>'+(i===0?'Today, ':'')+lab(w.day)+'</b></div><div class="meta"><span class="pill '+(sh.off?'mute':'info')+'">'+esc(txt)+'</span></div></div>';
+  }).join('');
+  const nd=e.settings.notice_days;
+  $('#offDate').min=dkey(addDays(pd(today()),nd));
+  $('#offRule').textContent='You can post '+e.settings.max_off+' off days a month, at least '+nd+' days ahead. Posted offs are shared with your shop.';
+  const mine=(e.my_offs||[]).map(d=>String(d).slice(0,10)).filter(d=>d>=today());
+  $('#myOffs').innerHTML=mine.length?mine.map(d=>'<div class="row"><div class="who"><b>'+lab(d)+'</b></div>'+
+    (d>today()?'<button class="btn small ghost" data-canceloff="'+d+'">'+(S.confirm==='o:'+d?'Tap again to cancel':'Cancel')+'</button>':'<span class="pill mute">Today</span>')+'</div>').join(''):'<div class="empty">None posted.</div>';
+}
+function boardShopFilter(){return S.admin?S.boardShop:(myShopId()||'all')}
+function renderBoard(){
+  const filt=boardShopFilter();const D=S.data;
+  $('#boardFilter').innerHTML=S.admin&&D.shops.length>1?['<button class="fchip" data-shopf="all" aria-pressed="'+(S.boardShop==='all')+'">All shops</button>']
+    .concat(D.shops.map(s=>'<button class="fchip" data-shopf="'+esc(s.id)+'" aria-pressed="'+(S.boardShop===s.id)+'">'+esc(s.name)+'</button>')).join(''):'';
+  const shops=D.shops.filter(s=>filt==='all'||s.id===filt);
+  const counts={on:0,late:0,missing:0,off:0};let html='';
+  shops.forEach(shop=>{
+    const rows=D.staff.filter(s=>s.shopId===shop.id).map(s=>({s,x:status(s)}))
+      .sort((a,b)=>(a.x.sh.off?1:0)-(b.x.sh.off?1:0)||mins(a.x.sh.start||'00:00')-mins(b.x.sh.start||'00:00')||byName(a.s,b.s));
+    rows.forEach(r=>{const k=r.x.k;if(k==='on'||k==='done')counts.on++;else if(k==='late')counts.late++;else if(k==='missing')counts.missing++;else if(k==='off')counts.off++});
+    html+='<div class="shophead"><h3>'+esc(shop.name)+'</h3><span>Open '+esc(shop.open)+' to '+esc(shop.close)+'</span></div><div class="card" style="padding:4px 16px">';
+    html+=rows.length?rows.map(({s,x})=>{
+      const p=x.p;let times='';
+      if(p){
+        times='<div class="sub">in '+hhmm(p.inAt)+(p.outAt?' · out '+hhmm(p.outAt):'')+'</div>';
+        if(S.admin)times+='<button class="btn small ghost" style="margin-top:4px" data-photo="'+esc(s.id)+'" data-day="'+esc(p.date)+'">Photos</button>';
+      }
+      return '<div class="row"><div class="who"><b>'+esc(s.name)+'</b><span class="sub">'+esc(s.role||'')+' · '+esc(shiftText(x.sh))+'</span></div><div class="meta"><span class="pill '+x.cls+'">'+esc(x.label)+'</span>'+times+'</div></div>';
+    }).join(''):'<div class="empty">No employees in this shop.</div>';
+    html+='</div>';
+  });
+  $('#board').innerHTML=D.shops.length?html:'<div class="card"><div class="empty">No shops yet. '+(S.admin?'Add your first shop in Setup.':'Ask the owner to set up the shops.')+'</div></div>';
+  $('#tiles').innerHTML=
+    '<div class="tile ok"><b>'+counts.on+'</b><span>On shift</span></div>'+
+    '<div class="tile warn"><b>'+counts.late+'</b><span>Came late</span></div>'+
+    '<div class="tile bad"><b>'+counts.missing+'</b><span>Not in yet</span></div>'+
+    '<div class="tile"><b>'+counts.off+'</b><span>Off today</span></div>';
+  const rep=D.staff.filter(s=>filt==='all'||s.shopId===filt).map(s=>{
+    const ps=D.punches.filter(p=>p.staffId===s.id&&p.inAt);const late=ps.filter(p=>p.lateMin>0);
+    return {s,days:ps.length,late:late.length,mins:late.reduce((a,p)=>a+p.lateMin,0)};
+  }).sort((a,b)=>b.late-a.late||b.mins-a.mins||byName(a.s,b.s));
+  $('#report').innerHTML=rep.length?'<table><thead><tr><th>Employee</th><th class="n">Days in</th><th class="n">Late</th><th class="n">Min late</th></tr></thead><tbody>'+
+    rep.map(r=>'<tr><td>'+esc(r.s.name)+'<div class="sub">'+esc((shopOf(r.s.shopId)||{}).name||'')+'</div></td><td class="n">'+r.days+'</td><td class="n">'+r.late+'</td><td class="n">'+r.mins+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">Nothing to report yet.</div>';
+  const pv=S.photoView;
+  $('#photoView').innerHTML=pv?'<div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">'+esc(pv.title)+'</h2><button class="btn small ghost" data-act="closephoto">Close</button></div>'+
+    (pv.loading?'<div class="empty">Loading...</div>':pv.imgs.length?'<div class="photos">'+pv.imgs.map(i=>'<figure style="margin:0"><img alt="'+esc(i.label)+'" src="'+esc(i.img)+'"><figcaption class="sub">'+esc(i.label)+'</figcaption></figure>').join('')+'</div>':'<div class="empty">No photos found.</div>')+'</div>':'';
+}
+function rosterShopId(){return S.admin?(S.rShop&&shopOf(S.rShop)?S.rShop:(S.data.shops[0]&&S.data.shops[0].id)):myShopId()}
+function renderRoster(){
+  const D=S.data;
+  $('#rShopWrap').hidden=!S.admin;
+  if(S.admin){S.rShop=rosterShopId();$('#rShop').innerHTML=opt(D.shops,S.rShop)}
+  const shop=shopOf(rosterShopId());
+  const mon=mondayOf(S.rWeek);const days=[0,1,2,3,4,5,6].map(i=>dkey(addDays(mon,i)));
+  $('#rTitle').textContent=lab(days[0])+' to '+lab(days[6]);
+  $('#rPrev').disabled=S.rWeek<=-1;$('#rNext').disabled=S.rWeek>=3;
+  $('#rFill').textContent=S.confirm==='fill'?'Tap again to replace this week':(S.working?'Working...':'Auto-fill week');
+  $('#rFill').disabled=S.working;
+  if(!shop){$('#rGrid').innerHTML='<div class="empty">No shop selected.</div>';return}
+  const staff=D.staff.filter(s=>s.shopId===shop.id).sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role)||byName(a,b));
+  if(!staff.length){$('#rGrid').innerHTML='<div class="empty">No employees in this shop yet.</div>';return}
+  const t=today();
+  let h='<table class="roster"><thead><tr><th>'+esc(shop.name)+'</th>'+days.map(d=>'<th class="'+(d===t?'today':'')+'">'+DAYS[pd(d).getDay()]+'<br>'+pd(d).getDate()+'</th>').join('')+'</tr></thead><tbody>';
+  staff.forEach(s=>{
+    h+='<tr><td><b>'+esc(s.name)+'</b><div class="sub">'+esc(s.role||'')+'</div></td>'+days.map(d=>{
+      const r=D.rmap[d+'_'+s.id];const v=r?r.kind:'';
+      return '<td><select aria-label="'+esc(s.name+' '+lab(d))+'" data-cell="1" data-staff="'+esc(s.id)+'" data-date="'+d+'">'+
+        [['','–'],['open','Open'],['close','Close'],['full','Full'],['off','Off']].map(o=>'<option value="'+o[0]+'"'+(o[0]===v?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></td>';
+    }).join('')+'</tr>';
+  });
+  $('#rGrid').innerHTML=h+'</tbody></table>';
+}
+function renderNotices(){
+  const md=mode();const canPost=md==='admin'||md==='mgr';const D=S.data;
+  $('#composer').hidden=!canPost;
+  if(canPost){
+    const sel=$('#nShop');const cur=sel.value||'all';
+    if(md==='admin')sel.innerHTML=opt(D.shops,cur,'<option value="all"'+(cur==='all'?' selected':'')+'>Everyone, all shops</option>');
+    else{const sh=shopOf(myShopId());sel.innerHTML=sh?'<option value="'+esc(sh.id)+'">'+esc(sh.name)+' only</option>':''}
+  }
+  const mine=myShopId();
+  let list,offs;
+  if(md==='admin'){
+    list=D.notices.slice();
+    const t=today(),end=dkey(addDays(pd(t),14));
+    offs=D.roster.filter(r=>r.kind==='off'&&r.date>=t&&r.date<=end).map(r=>({day:r.date,s:staffOf(r.staffId)})).filter(x=>x.s)
+      .map(x=>({day:x.day,name:x.s.name,shop:(shopOf(x.s.shopId)||{}).name||''}));
+  }else{
+    const en=S.empNotices||{notices:[],offs:[]};
+    list=en.notices.map(n=>({id:n.id,text:n.body,type:n.type,shopId:n.shop_id||'all',at:Date.parse(n.created_at)}));
+    offs=en.offs.map(o=>({day:String(o.day).slice(0,10),name:o.name,shop:''}));
+  }
+  list.sort((a,b)=>b.at-a.at);
+  $('#noticeList').innerHTML=list.length?list.map(n=>{
+    const shop=n.shopId==='all'?'All shops':((shopOf(n.shopId)||{}).name||(md==='admin'?'Removed shop':'Your shop'));
+    const when=new Date(n.at);
+    const del=canPost&&(md==='admin'||n.shopId===mine)?'<button class="btn small danger" data-delnotice="'+esc(n.id)+'">'+(S.confirm==='n:'+n.id?'Tap again to delete':'Delete')+'</button>':'';
+    return '<div class="notice"><div class="actions"><span class="pill '+(n.type==='off'?'warn':'info')+'">'+(n.type==='off'?'Off day':'Notice')+'</span><span class="sub">'+esc(shop)+' · '+DAYS[when.getDay()]+' '+when.getDate()+' '+MON[when.getMonth()]+' '+pad(when.getHours())+':'+pad(when.getMinutes())+'</span></div><p>'+esc(n.text)+'</p>'+del+'</div>';
+  }).join(''):'<div class="empty">No notices yet.</div>';
+  offs.sort((a,b)=>a.day<b.day?-1:a.day>b.day?1:String(a.name).localeCompare(b.name));
+  const t=today();
+  $('#offDays').innerHTML=offs.length?offs.map(x=>'<div class="row"><div class="who"><b>'+esc(x.name)+'</b>'+(x.shop?'<span class="sub">'+esc(x.shop)+'</span>':'')+'</div><div class="meta"><span class="pill '+(x.day===t?'warn':'mute')+'">'+lab(x.day)+'</span></div></div>').join(''):'<div class="empty">No off days in the next two weeks.</div>';
+}
+function renderSetup(){
+  const D=S.data;
+  if(document.activeElement!==$('#stMax'))$('#stMax').value=D.settings.maxOff;
+  if(document.activeElement!==$('#stNotice'))$('#stNotice').value=D.settings.noticeDays;
+  const eShop=$('#eShop');const cur=eShop.value;
+  eShop.innerHTML=D.shops.length?opt(D.shops,cur):'<option value="">Add a shop first</option>';
+  if(!$('#eRole').options.length)$('#eRole').innerHTML=ROLES.map(r=>'<option>'+r+'</option>').join('');
+  $('#manage').innerHTML=D.shops.length?D.shops.map(shop=>{
+    const staff=D.staff.filter(s=>s.shopId===shop.id).sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role)||byName(a,b));
+    const t=shopTimes(shop);
+    return '<div class="shophead" style="margin-top:6px"><h3>'+esc(shop.name)+'</h3><span>'+esc(t.open)+' / '+esc(t.mid)+' / '+esc(t.close)+' · grace '+shop.grace+'m</span></div>'+
+      (staff.length?staff.map(s=>
+        '<div class="row"><div class="who"><b>'+esc(s.name)+'</b><span class="sub">usual '+esc(s.start)+' to '+esc(s.end)+'</span></div>'+
+        '<div class="inline"><select aria-label="Move '+esc(s.name)+' to shop" data-move="'+esc(s.id)+'">'+opt(D.shops,s.shopId)+'</select>'+
+        '<select aria-label="Role of '+esc(s.name)+'" data-role="'+esc(s.id)+'">'+ROLES.map(r=>'<option'+(r===s.role?' selected':'')+'>'+r+'</option>').join('')+'</select>'+
+        '<button class="btn small ghost" data-pinfor="'+esc(s.id)+'">PIN</button>'+
+        '<button class="btn small danger" data-delstaff="'+esc(s.id)+'">'+(S.confirm==='s:'+s.id?'Tap again':'Remove')+'</button></div>'+
+        (S.pinFor===s.id?'<div class="inline"><input id="newPin" class="pin" type="password" inputmode="numeric" maxlength="4" placeholder="New PIN"><button class="btn small" data-savepin="'+esc(s.id)+'">Save PIN</button></div>':'')+
+        '</div>').join(''):'<div class="empty">No employees yet.</div>')+
+      '<div style="margin:8px 0 14px"><button class="btn small danger" data-delshop="'+esc(shop.id)+'">'+(S.confirm==='h:'+shop.id?'Tap again to remove shop':'Remove shop')+'</button></div>';
+  }).join(''):'<div class="empty">No shops yet.</div>';
+  const sh=S.shuffle;
+  $('#shOut').innerHTML=sh?(sh.error?'<div class="msg bad">'+esc(sh.error)+'</div>':
+    '<div style="margin-top:10px">'+sh.plan.map(p=>'<div class="row"><div class="who"><b>'+esc(p.s.name)+'</b></div><div class="meta"><span class="sub">'+esc((shopOf(p.s.shopId)||{}).name||'')+' to </span><span class="pill '+(p.s.shopId===p.to?'mute':'info')+'">'+esc((shopOf(p.to)||{}).name||'')+'</span></div></div>').join('')+
+    '<div class="actions" style="margin-top:10px"><button class="btn small" data-act="shapply"'+(S.working?' disabled':'')+'>'+(S.working?'Working...':'Apply')+'</button><button class="btn small ghost" data-act="shpreview">Shuffle again</button><button class="btn small ghost" data-act="shcancel">Cancel</button></div></div>'):'';
+}
+function renderChrome(){
+  const md=mode();const tabs=TABS[md];
+  if(!tabs.includes(S.tab))S.tab=tabs[0];
+  $('#tabs').innerHTML=tabs.length>1?tabs.map(t=>'<button role="tab" data-tab="'+t+'" aria-selected="'+(t===S.tab)+'">'+(md==='mgr'&&t==='board'?'Shop today':TABNAMES[t])+'</button>').join(''):'';
+  $('#tabs').hidden=tabs.length<2;
+  ['login','me','week','board','roster','notices','setup'].forEach(x=>{$('#tab-'+x).hidden=x!==S.tab});
+  const bar=$('#whoBar');
+  if(md==='mgr'||md==='emp'){const e=S.emp.staff;bar.hidden=false;bar.innerHTML='<div><b>'+esc(e.name)+'</b><div class="sub">'+esc(e.role)+' · '+esc(e.shop)+'</div></div><button class="btn small ghost" data-act="logout">Log out</button>'}
+  else if(md==='admin'){bar.hidden=false;bar.innerHTML='<div><b>Owner view</b><div class="sub">All shops</div></div><button class="btn small ghost" data-act="logout">Log out</button>'}
+  else bar.hidden=true;
+  const b=$('#banner');
+  if(!configured)b.innerHTML='<div class="msg warn" style="margin:0 0 14px">This page is not connected yet. Add the config.js file with your two Supabase values (see GUIDE.md, step 6).</div>';
+  else if(S.err)b.innerHTML='<div class="msg bad" style="margin:0 0 14px">'+esc(S.err)+'</div>';
+  else b.innerHTML='';
+  return md;
+}
+function renderAll(){
+  renderChrome();
+  if(S.tab==='login')renderLogin();
+  if(S.tab==='me')renderMe();
+  if(S.tab==='week')renderWeek();
+  if(S.tab==='board')renderBoard();
+  if(S.tab==='roster')renderRoster();
+  if(S.tab==='notices')renderNotices();
+  if(S.tab==='setup')renderSetup();
+}
+
+/* ---------- actions ---------- */
+async function guard(fn,sel){
+  try{await fn();return true}
+  catch(e){const m=(e&&e.message)||'Please try again';if(sel)flash(sel,'bad',m);else{S.err=m}S.working=false;S.busy=false;renderAll();return false}
+}
+function armConfirm(key,fn){
+  if(S.confirm===key){S.confirm=null;renderAll();fn();return}
+  S.confirm=key;renderAll();
+  setTimeout(()=>{if(S.confirm===key){S.confirm=null;renderAll()}},4000);
+}
+async function staffLogin(){
+  const id=$('#lStaff').value;if(!id)return;
+  $('#lBtn').disabled=true;
+  try{
+    const r=await rpc('emp_login',{p_staff:id,p_pin:$('#lPin').value});
+    if(!r.ok){flash('#lMsg','bad',r.error);$('#lPin').value='';renderLogin();return}
+    S.token=r.token;store.set('zamu.token',r.token);S.tab='';S.cmsg=null;$('#lPin').value='';$('#lMsg').innerHTML='';
+    await loadData();
+  }catch(e){flash('#lMsg','bad',e.message);renderLogin()}
+}
+async function ownerLogin(){
+  $('#oBtn').disabled=true;
+  try{
+    const r=await sb.auth.signInWithPassword({email:$('#oEmail').value.trim(),password:$('#oPass').value});
+    if(r.error){flash('#oMsg','bad','Wrong email or password.');return}
+    S.admin=true;S.tab='';$('#oPass').value='';await loadData();
+  }finally{$('#oBtn').disabled=false}
+}
+async function logout(){
+  if(S.admin){await sb.auth.signOut();S.admin=false}
+  S.token=null;store.del('zamu.token');S.emp=null;S.tab='';S.cmsg=null;S.photoView=null;
+  await loadData();
+}
+
+/* camera: live preview inside the page, then capture a still frame */
+let stream=null;
+async function openCamera(){
+  S.cmsg=null;
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){S.cmsg={cls:'bad',text:'This browser cannot open the camera. Open the page in Chrome or Safari.'};return renderMe()}
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+    const v=$('#camVideo');v.srcObject=stream;$('#camBox').hidden=false;await v.play().catch(()=>{});
+  }catch(e){
+    closeCamera();
+    S.cmsg={cls:'bad',text:'Camera blocked. Allow camera access for this page in your browser settings, then try again.'};renderMe();
+  }
+}
+function closeCamera(){
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  $('#camVideo').srcObject=null;$('#camBox').hidden=true;
+}
+async function snap(){
+  const v=$('#camVideo');if(!v.videoWidth)return;
+  const e=S.emp;const max=320;const r=Math.min(1,max/Math.max(v.videoWidth,v.videoHeight));
+  const c=document.createElement('canvas');c.width=Math.round(v.videoWidth*r);c.height=Math.round(v.videoHeight*r);
+  const g=c.getContext('2d');g.drawImage(v,0,0,c.width,c.height);
+  const now=new Date();
+  g.fillStyle='rgba(0,0,0,.6)';g.fillRect(0,c.height-18,c.width,18);
+  g.fillStyle='#fff';g.font='11px sans-serif';g.textBaseline='middle';
+  g.fillText(e.staff.name+' · '+e.staff.shop+' · '+dkey(now)+' '+hhmm(now),5,c.height-9,c.width-10);
+  const img=c.toDataURL('image/jpeg',0.55);
+  closeCamera();
+  S.busy=true;S.cmsg={cls:'info',text:'Saving...'};renderMe();
+  const ok=await guard(async()=>{
+    const r=await rpc('emp_clock',{p_token:S.token,p_img:img});
+    S.cmsg=r.action==='out'?{cls:'ok',text:'Clocked out at '+r.time+'. Thank you, '+e.staff.name.split(' ')[0]+'.'}
+      :(r.late_min>0?{cls:'warn',text:'Clocked in at '+r.time+'. You are '+r.late_min+' min late.'}:{cls:'ok',text:'Clocked in at '+r.time+'. Have a good shift.'});
+  },'#meMsg');
+  S.busy=false;
+  if(ok)await loadData();else renderMe();
+}
+
+async function postOff(){
+  const e=S.emp;if(!e)return;const date=$('#offDate').value;
+  if(!date)return flash('#offMsg','bad','Pick a date.');
+  const ok=await guard(async()=>{await rpc('emp_post_off',{p_token:S.token,p_day:date});$('#offDate').value=''},'#offMsg');
+  if(ok){await loadData();flash('#offMsg','ok','Posted. '+lab(date)+' is now an off day.')}
+}
+async function cancelOff(date){
+  await guard(()=>rpc('emp_cancel_off',{p_token:S.token,p_day:date}),'#offMsg');
+  await loadData();
+}
+async function setCell(staffId,date,kind){
+  await guard(async()=>{
+    if(S.admin){
+      const st=staffOf(staffId);const shop=st&&shopOf(st.shopId);if(!shop)return;
+      if(!kind){await q(sb.from('roster').delete().eq('staff_id',staffId).eq('day',date));return}
+      const t=shopTimes(shop);
+      const times=kind==='off'?[null,null]:kind==='open'?[t.open,t.mid]:kind==='close'?[t.mid,t.close]:[t.open,t.close];
+      await q(sb.from('roster').upsert({staff_id:staffId,day:date,kind,start_t:times[0],end_t:times[1],by_staff:false},{onConflict:'staff_id,day'}));
+    }else await rpc('emp_roster_set',{p_token:S.token,p_staff:staffId,p_day:date,p_kind:kind});
+  },'#rMsg');
+  await loadData();
+}
+async function autoFill(){
+  const shopId=rosterShopId();if(!shopId)return;
+  const monday=dkey(mondayOf(S.rWeek));
+  S.working=true;renderRoster();
+  const ok=await guard(async()=>{
+    const n=S.admin?await rpc('admin_fill_week',{p_shop:shopId,p_monday:monday}):(await rpc('emp_fill_week',{p_token:S.token,p_monday:monday})).filled;
+    S.fillMsg='Filled '+n+' shifts. Past days were left alone.';
+  },'#rMsg');
+  S.working=false;await loadData();
+  if(ok&&S.fillMsg)flash('#rMsg','ok',S.fillMsg);
+}
+async function addShop(){
+  const name=$('#sName').value.trim();if(!name)return flash('#sMsg','bad','Enter a shop name.');
+  const open=$('#sOpen').value,close=$('#sClose').value,mid=$('#sMid').value;
+  if(!open||!close||mins(close)<=mins(open))return flash('#sMsg','bad','Closing time must be after opening time.');
+  if(!mid||mins(mid)<=mins(open)||mins(mid)>=mins(close))return flash('#sMsg','bad','Handover time must be between opening and closing.');
+  const ok=await guard(()=>q(sb.from('shops').insert({name,open_t:open,close_t:close,mid_t:mid,grace:Math.max(0,Number($('#sGrace').value)||0)})),'#sMsg');
+  if(ok){$('#sName').value='';await loadData();flash('#sMsg','ok','Added '+name+'.')}
+}
+async function addStaff(){
+  const name=$('#eName').value.trim();const shopId=$('#eShop').value;const pin=$('#ePin').value;
+  if(!shopId)return flash('#eMsg','bad','Add a shop first.');
+  if(!name)return flash('#eMsg','bad','Enter the employee name.');
+  if(!/^\d{4}$/.test(pin))return flash('#eMsg','bad','PIN must be 4 digits.');
+  const start=$('#eStart').value,end=$('#eEnd').value;
+  if(!start||!end||mins(end)<=mins(start))return flash('#eMsg','bad','Shift end must be after shift start.');
+  const off=Array.from(document.querySelectorAll('#eOff input:checked')).map(i=>Number(i.value));
+  const ok=await guard(()=>rpc('admin_add_staff',{p_name:name,p_shop:shopId,p_role:$('#eRole').value,p_start:start,p_end:end,p_off:off,p_pin:pin}),'#eMsg');
+  if(ok){$('#eName').value='';$('#ePin').value='';await loadData();flash('#eMsg','ok','Added '+name+'. Give them the PIN so they can log in on their phone.')}
+}
+async function postNotice(){
+  const text=$('#nText').value.trim();if(!text)return;
+  const ok=await guard(async()=>{
+    if(S.admin){const sid=$('#nShop').value;await q(sb.from('notices').insert({body:text,type:'notice',shop_id:sid==='all'?null:sid}))}
+    else await rpc('emp_post_notice',{p_token:S.token,p_body:text});
+  });
+  if(ok){$('#nText').value='';await loadData()}
+}
+async function delNotice(id){
+  await guard(async()=>{if(S.admin)await q(sb.from('notices').delete().eq('id',id));else await rpc('emp_del_notice',{p_token:S.token,p_id:id})});
+  await loadData();
+}
+async function saveSettings(){
+  const maxOff=Math.max(0,Math.min(10,Number($('#stMax').value)||0));
+  const noticeDays=Math.max(0,Math.min(60,Number($('#stNotice').value)||0));
+  const ok=await guard(()=>q(sb.from('settings').update({max_off:maxOff,notice_days:noticeDays}).eq('id',1)),'#stMsg');
+  if(ok){await loadData();flash('#stMsg','ok','Saved.')}
+}
+function previewShuffle(){
+  const D=S.data;const incl=$('#shMgr').checked;
+  if(D.shops.length<2){S.shuffle={error:'Add at least two shops to shuffle between.'};return renderSetup()}
+  const pool=shuffle(D.staff.filter(s=>incl||!isMgr(s)));
+  if(!pool.length){S.shuffle={error:'No employees to shuffle.'};return renderSetup()}
+  const order=shuffle(D.shops.slice());
+  S.shuffle={plan:pool.map((s,i)=>({s,to:order[i%order.length].id}))};
+  renderSetup();
+}
+async function applyShuffle(){
+  const plan=S.shuffle&&S.shuffle.plan;if(!plan)return;
+  S.working=true;renderSetup();
+  await guard(async()=>{for(const p of plan){if(p.s.shopId!==p.to)await q(sb.from('staff').update({shop_id:p.to}).eq('id',p.s.id))}S.shuffle=null});
+  S.working=false;await loadData();
+}
+async function showPhotos(staffId,day){
+  const st=staffOf(staffId);
+  S.photoView={title:(st?st.name:'Employee')+' · '+lab(day),imgs:[],loading:true};renderBoard();
+  await guard(async()=>{
+    const rows=await q(sb.from('photos').select('which,img,taken_at').eq('staff_id',staffId).eq('day',day).order('which'));
+    S.photoView.imgs=rows.map(r=>({label:(r.which==='in'?'Clock in ':'Clock out ')+hhmm(r.taken_at),img:r.img}));
+  });
+  if(S.photoView)S.photoView.loading=false;renderBoard();
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button');if(!t)return;const d=t.dataset;
+  if(d.tab){S.tab=d.tab;return renderAll()}
+  if(!sb)return;
+  if(d.shopf){S.boardShop=d.shopf;return renderBoard()}
+  if(d.photo)return showPhotos(d.photo,d.day);
+  if(d.act==='closephoto'){S.photoView=null;return renderBoard()}
+  if(d.act==='logout')return logout();
+  if(d.canceloff)return armConfirm('o:'+d.canceloff,()=>cancelOff(d.canceloff));
+  if(d.delnotice)return armConfirm('n:'+d.delnotice,()=>delNotice(d.delnotice));
+  if(d.delstaff)return armConfirm('s:'+d.delstaff,async()=>{await guard(()=>q(sb.from('staff').delete().eq('id',d.delstaff)));await loadData()});
+  if(d.delshop)return armConfirm('h:'+d.delshop,async()=>{
+    const ok=await guard(()=>q(sb.from('shops').delete().eq('id',d.delshop)));
+    await loadData();
+    if(!ok){S.err='Could not remove the shop. Move or remove its staff first.';renderAll()}
+  });
+  if(d.pinfor){S.pinFor=S.pinFor===d.pinfor?null:d.pinfor;return renderSetup()}
+  if(d.savepin){
+    const pin=($('#newPin')||{}).value||'';if(!/^\d{4}$/.test(pin))return;
+    return guard(async()=>{await rpc('admin_set_pin',{p_staff:d.savepin,p_pin:pin});S.pinFor=null;renderAll()});
+  }
+  if(d.act==='shpreview')return previewShuffle();
+  if(d.act==='shcancel'){S.shuffle=null;return renderSetup()}
+  if(d.act==='shapply')return applyShuffle();
+});
+document.addEventListener('change',e=>{
+  const t=e.target;if(!t.dataset||!sb)return;
+  if(t.dataset.cell)return setCell(t.dataset.staff,t.dataset.date,t.value);
+  if(t.dataset.move)return guard(()=>q(sb.from('staff').update({shop_id:t.value}).eq('id',t.dataset.move))).then(loadData);
+  if(t.dataset.role)return guard(()=>q(sb.from('staff').update({role:t.value}).eq('id',t.dataset.role))).then(loadData);
+});
+$('#lShop').addEventListener('change',()=>{$('#lStaff').value='';renderLogin()});
+$('#lStaff').addEventListener('change',renderLogin);
+$('#lPin').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'');renderLogin()});
+$('#lPin').addEventListener('keydown',e=>{if(e.key==='Enter'&&!$('#lBtn').disabled)staffLogin()});
+$('#lBtn').addEventListener('click',staffLogin);
+$('#toOwner').addEventListener('click',()=>{$('#staffLogin').hidden=true;$('#ownerLogin').hidden=false});
+$('#toStaff').addEventListener('click',()=>{$('#staffLogin').hidden=false;$('#ownerLogin').hidden=true});
+$('#oBtn').addEventListener('click',ownerLogin);
+$('#oPass').addEventListener('keydown',e=>{if(e.key==='Enter')ownerLogin()});
+$('#meBtn').addEventListener('click',openCamera);
+$('#camCancel').addEventListener('click',closeCamera);
+$('#camSnap').addEventListener('click',snap);
+$('#offBtn').addEventListener('click',postOff);
+$('#rShop').addEventListener('change',e=>{S.rShop=e.target.value;renderRoster()});
+$('#rPrev').addEventListener('click',()=>{S.rWeek--;renderRoster()});
+$('#rNext').addEventListener('click',()=>{S.rWeek++;renderRoster()});
+$('#rFill').addEventListener('click',()=>{if(!S.working)armConfirm('fill',autoFill)});
+$('#sAdd').addEventListener('click',addShop);
+$('#eAdd').addEventListener('click',addStaff);
+$('#nPost').addEventListener('click',postNotice);
+$('#stSave').addEventListener('click',saveSettings);
+$('#shPrev').addEventListener('click',previewShuffle);
+$('#purgeBtn').addEventListener('click',()=>armConfirm('purge',async()=>{
+  const days=Number($('#purgeDays').value);
+  const ok=await guard(async()=>{const n=await rpc('admin_purge_photos',{p_days:days});flash('#purgeMsg','ok','Deleted '+n+' photos.')},'#purgeMsg');
+  if(!ok)return;
+}));
+$('#eShop').addEventListener('change',()=>{const s=shopOf($('#eShop').value);if(s){const t=shopTimes(s);$('#eStart').value=t.open}});
+$('#eOff').innerHTML=DAYS.map((d,i)=>'<label><input type="checkbox" value="'+i+'">'+d+'</label>').join('');
+$('#ePin').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'')});
+
+function tick(){
+  const d=new Date();
+  $('#hClock').textContent=pad(d.getHours())+':'+pad(d.getMinutes());
+  $('#hDate').textContent=DAYS[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()]+' '+d.getFullYear();
+}
+tick();
+setInterval(tick,30000);
+setInterval(()=>{if(document.visibilityState==='visible'&&sb&&(S.admin||S.token)&&$('#camBox').hidden)loadData()},45000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&sb&&(S.admin||S.token))loadData()});
+
+/* ---------- start ---------- */
+(async function(){
+  S.token=store.get('zamu.token');
+  renderAll();
+  if(!sb)return;
+  try{const s=await sb.auth.getSession();S.admin=!!(s&&s.data&&s.data.session)}catch(e){}
+  await loadData();
+})();
+})();
+</script>
+</body>
+</html>
