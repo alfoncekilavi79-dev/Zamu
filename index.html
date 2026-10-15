@@ -232,10 +232,13 @@ table.roster select{padding:6px 2px;font-size:13px;width:66px}
         <div><label for="sClose">Closes</label><input id="sClose" type="time" value="22:30"></div>
       </div>
       <div class="grid2">
-        <div><label for="sMid">Handover time</label><input id="sMid" type="time" value="14:30"></div>
+        <div><label for="sMid">Opening shift ends</label><input id="sMid" type="time" value="19:30"></div>
+        <div><label for="sCloseStart">Closing shift starts</label><input id="sCloseStart" type="time" value="09:30"></div>
+      </div>
+      <div class="grid2">
         <div><label for="sGrace">Grace (minutes)</label><input id="sGrace" type="number" min="0" max="60" value="10" inputmode="numeric"></div>
       </div>
-      <div class="hint">Opening shift runs from open to handover. Closing shift runs from handover to close.</div>
+      <div class="hint">Opening shift runs from opening time until it ends. Closing shift runs from its start time until closing. The two shifts can overlap, for example opening 06:30 to 19:30 and closing 09:30 to 22:30.</div>
       <button class="btn" id="sAdd">Add shop</button>
       <div id="sMsg"></div>
     </div>
@@ -330,7 +333,7 @@ async function rpc(name,args){
 async function q(p){const r=await p;if(r.error)throw new Error(r.error.message);return r.data}
 
 /* normalisers: database rows to the shapes the screens use */
-const nShop=r=>({id:r.id,name:r.name,open:t5(r.open_t),close:t5(r.close_t),mid:t5(r.mid_t),grace:r.grace});
+const nShop=r=>({id:r.id,name:r.name,open:t5(r.open_t),close:t5(r.close_t),mid:t5(r.mid_t),closeStart:t5(r.close_start_t),grace:r.grace});
 const nStaff=r=>({id:r.id,name:r.name,shopId:r.shop_id,role:r.role,start:t5(r.usual_start),end:t5(r.usual_end),off:r.off_days||[]});
 const nRoster=r=>({id:String(r.day).slice(0,10)+'_'+r.staff_id,staffId:r.staff_id,date:String(r.day).slice(0,10),kind:r.kind,start:t5(r.start_t),end:t5(r.end_t),byStaff:!!r.by_staff});
 const nPunch=r=>({id:String(r.day).slice(0,10)+'_'+r.staff_id,staffId:r.staff_id,date:String(r.day).slice(0,10),inAt:r.in_at,outAt:r.out_at,lateMin:r.late_min||0});
@@ -392,7 +395,7 @@ const punchFor=(sid,date)=>S.data.punches.find(p=>p.staffId===sid&&p.date===date
 function shopTimes(shop){
   const o=shop.open||'08:00',c=shop.close||'18:00';
   const m=shop.mid||fmtMin(Math.round((mins(o)+mins(c))/2/30)*30);
-  return {open:o,mid:m,close:c};
+  return {open:o,mid:m,closeStart:shop.closeStart||m,close:c};
 }
 function shiftOn(st,date){
   const r=S.data.rmap[date+'_'+st.id];
@@ -567,7 +570,7 @@ function renderSetup(){
   $('#manage').innerHTML=D.shops.length?D.shops.map(shop=>{
     const staff=D.staff.filter(s=>s.shopId===shop.id).sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role)||byName(a,b));
     const t=shopTimes(shop);
-    return '<div class="shophead" style="margin-top:6px"><h3>'+esc(shop.name)+'</h3><span>'+esc(t.open)+' / '+esc(t.mid)+' / '+esc(t.close)+' · grace '+shop.grace+'m</span></div>'+
+    return '<div class="shophead" style="margin-top:6px"><h3>'+esc(shop.name)+'</h3><span>'+esc('Open '+t.open+' to '+t.mid+' · Close '+t.closeStart+' to '+t.close)+' · grace '+shop.grace+'m</span></div>'+
       (staff.length?staff.map(s=>
         '<div class="row"><div class="who"><b>'+esc(s.name)+'</b><span class="sub">usual '+esc(s.start)+' to '+esc(s.end)+'</span></div>'+
         '<div class="inline"><select aria-label="Move '+esc(s.name)+' to shop" data-move="'+esc(s.id)+'">'+opt(D.shops,s.shopId)+'</select>'+
@@ -698,7 +701,7 @@ async function setCell(staffId,date,kind){
       const st=staffOf(staffId);const shop=st&&shopOf(st.shopId);if(!shop)return;
       if(!kind){await q(sb.from('roster').delete().eq('staff_id',staffId).eq('day',date));return}
       const t=shopTimes(shop);
-      const times=kind==='off'?[null,null]:kind==='open'?[t.open,t.mid]:kind==='close'?[t.mid,t.close]:[t.open,t.close];
+      const times=kind==='off'?[null,null]:kind==='open'?[t.open,t.mid]:kind==='close'?[t.closeStart,t.close]:[t.open,t.close];
       await q(sb.from('roster').upsert({staff_id:staffId,day:date,kind,start_t:times[0],end_t:times[1],by_staff:false},{onConflict:'staff_id,day'}));
     }else await rpc('emp_roster_set',{p_token:S.token,p_staff:staffId,p_day:date,p_kind:kind});
   },'#rMsg');
@@ -717,10 +720,11 @@ async function autoFill(){
 }
 async function addShop(){
   const name=$('#sName').value.trim();if(!name)return flash('#sMsg','bad','Enter a shop name.');
-  const open=$('#sOpen').value,close=$('#sClose').value,mid=$('#sMid').value;
+  const open=$('#sOpen').value,close=$('#sClose').value,mid=$('#sMid').value,cstart=$('#sCloseStart').value;
   if(!open||!close||mins(close)<=mins(open))return flash('#sMsg','bad','Closing time must be after opening time.');
-  if(!mid||mins(mid)<=mins(open)||mins(mid)>=mins(close))return flash('#sMsg','bad','Handover time must be between opening and closing.');
-  const ok=await guard(()=>q(sb.from('shops').insert({name,open_t:open,close_t:close,mid_t:mid,grace:Math.max(0,Number($('#sGrace').value)||0)})),'#sMsg');
+  if(!mid||mins(mid)<=mins(open)||mins(mid)>mins(close))return flash('#sMsg','bad','The opening shift must end after the shop opens and no later than closing time.');
+  if(!cstart||mins(cstart)<mins(open)||mins(cstart)>=mins(close))return flash('#sMsg','bad','The closing shift must start between opening and closing time.');
+  const ok=await guard(()=>q(sb.from('shops').insert({name,open_t:open,close_t:close,mid_t:mid,close_start_t:cstart,grace:Math.max(0,Number($('#sGrace').value)||0)})),'#sMsg');
   if(ok){$('#sName').value='';await loadData();flash('#sMsg','ok','Added '+name+'.')}
 }
 async function addStaff(){
