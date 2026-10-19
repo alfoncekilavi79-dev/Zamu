@@ -193,7 +193,7 @@ table.roster select{padding:6px 2px;font-size:13px;width:66px}
       </div>
       <div class="hint">A dash means the person's usual shift. Opening and closing times come from the shop's hours.</div>
     </div>
-    <div class="card"><div class="scroll" id="rGrid"></div></div>
+    <div class="card"><div class="scroll" id="rGrid"></div><div id="rWarn"></div></div>
     <div class="card">
       <h2>Auto-fill this week</h2>
       <div class="hint" style="margin:0 0 8px">Randomly splits staff into opening and closing each day. Off days stay as they are. Past days are left alone.</div>
@@ -239,6 +239,16 @@ table.roster select{padding:6px 2px;font-size:13px;width:66px}
         <div><label for="sGrace">Grace (minutes)</label><input id="sGrace" type="number" min="0" max="60" value="10" inputmode="numeric"></div>
       </div>
       <div class="hint">Opening shift runs from opening time until it ends. Closing shift runs from its start time until closing. The two shifts can overlap, for example opening 06:30 to 19:30 and closing 09:30 to 22:30.</div>
+      <label>Sunday hours (optional)</label>
+      <div class="hint" style="margin:0 0 6px">Fill in all four if this shop works different hours on Sundays. Leave them empty if Sundays are the same.</div>
+      <div class="grid2">
+        <div><label for="sSunOpen">Sunday opens</label><input id="sSunOpen" type="time"></div>
+        <div><label for="sSunClose">Sunday closes</label><input id="sSunClose" type="time"></div>
+      </div>
+      <div class="grid2">
+        <div><label for="sSunMid">Sunday opening shift ends</label><input id="sSunMid" type="time"></div>
+        <div><label for="sSunCS">Sunday closing shift starts</label><input id="sSunCS" type="time"></div>
+      </div>
       <button class="btn" id="sAdd">Add shop</button>
       <div id="sMsg"></div>
     </div>
@@ -297,7 +307,7 @@ const CFG=window.ZAMU_CONFIG||{};
 const configured=!!(window.supabase&&CFG.SUPABASE_URL&&CFG.SUPABASE_ANON_KEY&&!/PASTE_/.test(CFG.SUPABASE_URL)&&!/PASTE_/.test(CFG.SUPABASE_ANON_KEY));
 const sb=configured?window.supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}}):null;
 
-const S={admin:false,company:false,token:null,tab:'',emp:null,empNotices:null,sv:null,
+const S={admin:false,company:false,editShop:null,ehDraft:{},token:null,tab:'',emp:null,empNotices:null,sv:null,
   data:{shops:[],staff:[],roster:[],punches:[],notices:[],rmap:{},settings:{maxOff:2,noticeDays:3}},
   names:[],boardShop:'all',rWeek:0,rShop:null,confirm:null,cmsg:null,err:null,
   photoView:null,shuffle:null,pinFor:null,busy:false,working:false,loaded:false,loginPeople:false};
@@ -333,7 +343,8 @@ async function rpc(name,args){
 async function q(p){const r=await p;if(r.error)throw new Error(r.error.message);return r.data}
 
 /* normalisers: database rows to the shapes the screens use */
-const nShop=r=>({id:r.id,name:r.name,open:t5(r.open_t),close:t5(r.close_t),mid:t5(r.mid_t),closeStart:t5(r.close_start_t),grace:r.grace});
+const nShop=r=>({id:r.id,name:r.name,open:t5(r.open_t),close:t5(r.close_t),mid:t5(r.mid_t),closeStart:t5(r.close_start_t),grace:r.grace,
+  sun:(r.sun_open_t&&r.sun_close_t)?{open:t5(r.sun_open_t),close:t5(r.sun_close_t),mid:t5(r.sun_mid_t),closeStart:t5(r.sun_close_start_t)}:null});
 const nStaff=r=>({id:r.id,name:r.name,shopId:r.shop_id,role:r.role,start:t5(r.usual_start),end:t5(r.usual_end),off:r.off_days||[]});
 const nRoster=r=>({id:String(r.day).slice(0,10)+'_'+r.staff_id,staffId:r.staff_id,date:String(r.day).slice(0,10),kind:r.kind,start:t5(r.start_t),end:t5(r.end_t),byStaff:!!r.by_staff});
 const nPunch=r=>({id:String(r.day).slice(0,10)+'_'+r.staff_id,staffId:r.staff_id,date:String(r.day).slice(0,10),inAt:r.in_at,outAt:r.out_at,lateMin:r.late_min||0});
@@ -393,10 +404,18 @@ async function loadData(){
 const shopOf=id=>S.data.shops.find(s=>s.id===id);
 const staffOf=id=>S.data.staff.find(s=>s.id===id);
 const punchFor=(sid,date)=>S.data.punches.find(p=>p.staffId===sid&&p.date===date);
-function shopTimes(shop){
-  const o=shop.open||'08:00',c=shop.close||'18:00';
-  const m=shop.mid||fmtMin(Math.round((mins(o)+mins(c))/2/30)*30);
-  return {open:o,mid:m,closeStart:shop.closeStart||m,close:c};
+function shopTimes(shop,date){
+  const b=(date&&pd(date).getDay()===0&&shop.sun)?shop.sun:shop;
+  const o=b.open||'08:00',c=b.close||'18:00';
+  const m=b.mid||fmtMin(Math.round((mins(o)+mins(c))/2/30)*30);
+  return {open:o,mid:m,closeStart:b.closeStart||m,close:c};
+}
+function hoursErr(o,c,m,cs,label){
+  const p=label?label+': ':'';
+  if(!o||!c||mins(c)<=mins(o))return p+'Closing time must be after opening time.';
+  if(!m||mins(m)<=mins(o)||mins(m)>mins(c))return p+'The opening shift must end after the shop opens and no later than closing time.';
+  if(!cs||mins(cs)<mins(o)||mins(cs)>=mins(c))return p+'The closing shift must start between opening and closing time.';
+  return '';
 }
 function shiftOn(st,date){
   const r=S.data.rmap[date+'_'+st.id];
@@ -478,7 +497,8 @@ function renderBoard(){
     const rows=D.staff.filter(s=>s.shopId===shop.id).map(s=>({s,x:status(s)}))
       .sort((a,b)=>(a.x.sh.off?1:0)-(b.x.sh.off?1:0)||mins(a.x.sh.start||'00:00')-mins(b.x.sh.start||'00:00')||byName(a.s,b.s));
     rows.forEach(r=>{const k=r.x.k;if(k==='on'||k==='done')counts.on++;else if(k==='late')counts.late++;else if(k==='missing')counts.missing++;else if(k==='off')counts.off++});
-    html+='<div class="shophead"><h3>'+esc(shop.name)+'</h3><span>Open '+esc(shop.open)+' to '+esc(shop.close)+'</span></div><div class="card" style="padding:4px 16px">';
+    const ht=shopTimes(shop,today());
+    html+='<div class="shophead"><h3>'+esc(shop.name)+'</h3><span>Open '+esc(ht.open)+' to '+esc(ht.close)+'</span></div><div class="card" style="padding:4px 16px">';
     html+=rows.length?rows.map(({s,x})=>{
       const p=x.p;let times='';
       if(p){
@@ -508,6 +528,7 @@ function renderBoard(){
 function rosterShopId(){return S.admin?(S.rShop&&shopOf(S.rShop)?S.rShop:(S.data.shops[0]&&S.data.shops[0].id)):myShopId()}
 function renderRoster(){
   const D=S.data;
+  $('#rWarn').innerHTML='';
   $('#rShopWrap').hidden=!S.admin;
   if(S.admin){S.rShop=rosterShopId();$('#rShop').innerHTML=opt(D.shops,S.rShop)}
   const shop=shopOf(rosterShopId());
@@ -529,6 +550,17 @@ function renderRoster(){
     }).join('')+'</tr>';
   });
   $('#rGrid').innerHTML=h+'</tbody></table>';
+  /* a manager and an assistant manager should not share a shift */
+  const mgrs=staff.filter(s=>s.role==='Manager'),asts=staff.filter(s=>s.role==='Assistant manager');
+  const clash=[];
+  days.forEach(d=>{
+    mgrs.forEach(m=>asts.forEach(a=>{
+      const km=(D.rmap[d+'_'+m.id]||{}).kind,ka=(D.rmap[d+'_'+a.id]||{}).kind;
+      const on=k=>k==='open'||k==='close'||k==='full';
+      if(on(km)&&on(ka)&&(km===ka||km==='full'||ka==='full'))clash.push(lab(d)+': '+m.name+' and '+a.name);
+    }));
+  });
+  if(clash.length)$('#rWarn').innerHTML='<div class="msg warn" style="margin-top:12px">A manager and an assistant manager are on the same shift. One should open and the other close.<br>'+clash.map(esc).join('<br>')+'</div>';
 }
 function renderNotices(){
   const md=mode();const canPost=md==='admin'||md==='mgr';const D=S.data;
@@ -561,6 +593,20 @@ function renderNotices(){
   const t=today();
   $('#offDays').innerHTML=offs.length?offs.map(x=>'<div class="row"><div class="who"><b>'+esc(x.name)+'</b>'+(x.shop?'<span class="sub">'+esc(x.shop)+'</span>':'')+'</div><div class="meta"><span class="pill '+(x.day===t?'warn':'mute')+'">'+lab(x.day)+'</span></div></div>').join(''):'<div class="empty">No off days in the next two weeks.</div>';
 }
+function hoursForm(shop){
+  const dr=S.ehDraft||{};const sun=shop.sun||{};
+  const val=(k,v)=>esc(dr['eh_'+k]!==undefined?dr['eh_'+k]:(v==null?'':v));
+  const f=(k,label,v,extra)=>'<div><label for="eh_'+k+'">'+label+'</label><input id="eh_'+k+'" '+(extra||'type="time"')+' value="'+val(k,v)+'"></div>';
+  return '<div class="card" style="margin:8px 0;background:var(--bg)"><h3 style="margin-bottom:8px">Edit hours: '+esc(shop.name)+'</h3>'+
+    '<div class="grid2">'+f('open','Opens',shop.open)+f('close','Closes',shop.close)+'</div>'+
+    '<div class="grid2">'+f('mid','Opening shift ends',shop.mid)+f('cs','Closing shift starts',shop.closeStart||shop.mid)+'</div>'+
+    '<div class="grid2">'+f('grace','Grace (minutes)',shop.grace,'type="number" min="0" max="60" inputmode="numeric"')+'</div>'+
+    '<label>Sunday hours (all four, or leave empty if the same)</label>'+
+    '<div class="grid2">'+f('sopen','Sunday opens',sun.open)+f('sclose','Sunday closes',sun.close)+'</div>'+
+    '<div class="grid2">'+f('smid','Sunday opening shift ends',sun.mid)+f('scs','Sunday closing shift starts',sun.closeStart)+'</div>'+
+    '<div class="actions" style="margin-top:12px"><button class="btn small" data-savehours="'+esc(shop.id)+'">Save hours</button><button class="btn small ghost" data-act="cancelhours">Cancel</button></div>'+
+    '<div id="ehMsg"></div></div>';
+}
 function renderSetup(){
   const D=S.data;
   if(document.activeElement!==$('#stMax'))$('#stMax').value=D.settings.maxOff;
@@ -572,6 +618,8 @@ function renderSetup(){
     const staff=D.staff.filter(s=>s.shopId===shop.id).sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role)||byName(a,b));
     const t=shopTimes(shop);
     return '<div class="shophead" style="margin-top:6px"><h3>'+esc(shop.name)+'</h3><span>'+esc('Open '+t.open+' to '+t.mid+' · Close '+t.closeStart+' to '+t.close)+' · grace '+shop.grace+'m</span></div>'+
+      (shop.sun?'<div class="sub" style="margin:-2px 0 6px">'+esc('Sundays: Open '+(()=>{const u=shopTimes(shop,'2026-10-18');return u.open+' to '+u.mid+' · Close '+u.closeStart+' to '+u.close})())+'</div>':'')+
+      (S.editShop===shop.id?hoursForm(shop):'')+
       (staff.length?staff.map(s=>
         '<div class="row"><div class="who"><b>'+esc(s.name)+'</b><span class="sub">usual '+esc(s.start)+' to '+esc(s.end)+'</span></div>'+
         '<div class="inline"><select aria-label="Move '+esc(s.name)+' to shop" data-move="'+esc(s.id)+'">'+opt(D.shops,s.shopId)+'</select>'+
@@ -580,7 +628,7 @@ function renderSetup(){
         '<button class="btn small danger" data-delstaff="'+esc(s.id)+'">'+(S.confirm==='s:'+s.id?'Tap again':'Remove')+'</button></div>'+
         (S.pinFor===s.id?'<div class="inline"><input id="newPin" class="pin" type="password" inputmode="numeric" maxlength="4" placeholder="New PIN"><button class="btn small" data-savepin="'+esc(s.id)+'">Save PIN</button></div>':'')+
         '</div>').join(''):'<div class="empty">No employees yet.</div>')+
-      '<div style="margin:8px 0 14px"><button class="btn small danger" data-delshop="'+esc(shop.id)+'">'+(S.confirm==='h:'+shop.id?'Tap again to remove shop':'Remove shop')+'</button></div>';
+      '<div class="actions" style="margin:8px 0 14px"><button class="btn small ghost" data-edithours="'+esc(shop.id)+'">'+(S.editShop===shop.id?'Close hours':'Edit hours')+'</button> <button class="btn small danger" data-delshop="'+esc(shop.id)+'">'+(S.confirm==='h:'+shop.id?'Tap again to remove shop':'Remove shop')+'</button></div>';
   }).join(''):'<div class="empty">No shops yet.</div>';
   const sh=S.shuffle;
   $('#shOut').innerHTML=sh?(sh.error?'<div class="msg bad">'+esc(sh.error)+'</div>':
@@ -702,7 +750,7 @@ async function setCell(staffId,date,kind){
     if(S.admin){
       const st=staffOf(staffId);const shop=st&&shopOf(st.shopId);if(!shop)return;
       if(!kind){await q(sb.from('roster').delete().eq('staff_id',staffId).eq('day',date));return}
-      const t=shopTimes(shop);
+      const t=shopTimes(shop,date);
       const times=kind==='off'?[null,null]:kind==='open'?[t.open,t.mid]:kind==='close'?[t.closeStart,t.close]:[t.open,t.close];
       await q(sb.from('roster').upsert({staff_id:staffId,day:date,kind,start_t:times[0],end_t:times[1],by_staff:false},{onConflict:'staff_id,day'}));
     }else await rpc('emp_roster_set',{p_token:S.token,p_staff:staffId,p_day:date,p_kind:kind});
@@ -723,11 +771,28 @@ async function autoFill(){
 async function addShop(){
   const name=$('#sName').value.trim();if(!name)return flash('#sMsg','bad','Enter a shop name.');
   const open=$('#sOpen').value,close=$('#sClose').value,mid=$('#sMid').value,cstart=$('#sCloseStart').value;
-  if(!open||!close||mins(close)<=mins(open))return flash('#sMsg','bad','Closing time must be after opening time.');
-  if(!mid||mins(mid)<=mins(open)||mins(mid)>mins(close))return flash('#sMsg','bad','The opening shift must end after the shop opens and no later than closing time.');
-  if(!cstart||mins(cstart)<mins(open)||mins(cstart)>=mins(close))return flash('#sMsg','bad','The closing shift must start between opening and closing time.');
-  const ok=await guard(()=>q(sb.from('shops').insert({name,open_t:open,close_t:close,mid_t:mid,close_start_t:cstart,grace:Math.max(0,Number($('#sGrace').value)||0)})),'#sMsg');
-  if(ok){$('#sName').value='';await loadData();flash('#sMsg','ok','Added '+name+'.')}
+  let e=hoursErr(open,close,mid,cstart,'');if(e)return flash('#sMsg','bad',e);
+  const sv=[$('#sSunOpen').value,$('#sSunClose').value,$('#sSunMid').value,$('#sSunCS').value];
+  const any=sv.some(Boolean),all=sv.every(Boolean);
+  if(any&&!all)return flash('#sMsg','bad','Fill in all four Sunday times, or leave them all empty.');
+  if(all){e=hoursErr(sv[0],sv[1],sv[2],sv[3],'Sunday');if(e)return flash('#sMsg','bad',e)}
+  const row={name,open_t:open,close_t:close,mid_t:mid,close_start_t:cstart,grace:Math.max(0,Number($('#sGrace').value)||0),
+    sun_open_t:all?sv[0]:null,sun_close_t:all?sv[1]:null,sun_mid_t:all?sv[2]:null,sun_close_start_t:all?sv[3]:null};
+  const ok=await guard(()=>q(sb.from('shops').insert(row)),'#sMsg');
+  if(ok){$('#sName').value='';['#sSunOpen','#sSunClose','#sSunMid','#sSunCS'].forEach(k=>{$(k).value=''});await loadData();flash('#sMsg','ok','Added '+name+'.')}
+}
+async function saveHours(id){
+  const v=k=>($('#eh_'+k)||{}).value||'';
+  const o=v('open'),c=v('close'),m=v('mid'),cs=v('cs'),g=Math.max(0,Number(v('grace'))||0);
+  let e=hoursErr(o,c,m,cs,'');if(e)return flash('#ehMsg','bad',e);
+  const sv=[v('sopen'),v('sclose'),v('smid'),v('scs')];
+  const any=sv.some(Boolean),all=sv.every(Boolean);
+  if(any&&!all)return flash('#ehMsg','bad','Fill in all four Sunday times, or leave them all empty.');
+  if(all){e=hoursErr(sv[0],sv[1],sv[2],sv[3],'Sunday');if(e)return flash('#ehMsg','bad',e)}
+  const row={open_t:o,close_t:c,mid_t:m,close_start_t:cs,grace:g,
+    sun_open_t:all?sv[0]:null,sun_close_t:all?sv[1]:null,sun_mid_t:all?sv[2]:null,sun_close_start_t:all?sv[3]:null};
+  const ok=await guard(()=>q(sb.from('shops').update(row).eq('id',id)),'#ehMsg');
+  if(ok){S.editShop=null;S.ehDraft={};await loadData()}
 }
 async function addStaff(){
   const name=$('#eName').value.trim();const shopId=$('#eShop').value;const pin=$('#ePin').value;
@@ -800,6 +865,9 @@ document.addEventListener('click',e=>{
     await loadData();
     if(!ok){S.err='Could not remove the shop. Move or remove its staff first.';renderAll()}
   });
+  if(d.edithours){S.editShop=S.editShop===d.edithours?null:d.edithours;S.ehDraft={};return renderSetup()}
+  if(d.savehours)return saveHours(d.savehours);
+  if(d.act==='cancelhours'){S.editShop=null;S.ehDraft={};return renderSetup()}
   if(d.pinfor){S.pinFor=S.pinFor===d.pinfor?null:d.pinfor;return renderSetup()}
   if(d.savepin){
     const pin=($('#newPin')||{}).value||'';if(!/^\d{4}$/.test(pin))return;
@@ -833,6 +901,7 @@ $('#rPrev').addEventListener('click',()=>{S.rWeek--;renderRoster()});
 $('#rNext').addEventListener('click',()=>{S.rWeek++;renderRoster()});
 $('#rFill').addEventListener('click',()=>{if(!S.working)armConfirm('fill',autoFill)});
 $('#sAdd').addEventListener('click',addShop);
+document.addEventListener('input',e=>{const id=e.target&&e.target.id;if(id&&id.indexOf('eh_')===0){S.ehDraft=S.ehDraft||{};S.ehDraft[id]=e.target.value}});
 $('#eAdd').addEventListener('click',addStaff);
 $('#nPost').addEventListener('click',postNotice);
 $('#stSave').addEventListener('click',saveSettings);
