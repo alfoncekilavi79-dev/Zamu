@@ -64,7 +64,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .msg.info{background:var(--info-bg);color:var(--info)}
 .shiftline{font-family:var(--mono);font-size:14px;color:var(--muted);margin-top:6px}
 .bigshift{font-family:var(--display);font-size:22px;margin:2px 0 0}
-.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 8px;text-align:center}
 .tile b{display:block;font-family:var(--mono);font-size:24px;line-height:1.1}
 .tile span{font-size:12px;color:var(--muted)}
@@ -113,7 +113,7 @@ table.roster select{padding:6px 2px;font-size:13px;width:66px}
 #camBox .actions{width:100%;max-width:420px}
 #camBox .btn{margin:0;flex:1}
 #camBox p{color:#fff;margin:0;text-align:center;font-size:14px}
-@media (max-width:420px){.tiles{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+@media (max-width:420px){.tiles{grid-template-columns:repeat(6,1fr)}.tile{grid-column:span 2}.tile:nth-child(n+4){grid-column:span 3}.grid2{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -345,7 +345,7 @@ async function q(p){const r=await p;if(r.error)throw new Error(r.error.message);
 /* normalisers: database rows to the shapes the screens use */
 const nShop=r=>({id:r.id,name:r.name,open:t5(r.open_t),close:t5(r.close_t),mid:t5(r.mid_t),closeStart:t5(r.close_start_t),grace:r.grace,
   sun:(r.sun_open_t&&r.sun_close_t)?{open:t5(r.sun_open_t),close:t5(r.sun_close_t),mid:t5(r.sun_mid_t),closeStart:t5(r.sun_close_start_t)}:null});
-const nStaff=r=>({id:r.id,name:r.name,shopId:r.shop_id,role:r.role,start:t5(r.usual_start),end:t5(r.usual_end),off:r.off_days||[]});
+const nStaff=r=>({id:r.id,name:r.name,shopId:r.shop_id,role:r.role,start:t5(r.usual_start),end:t5(r.usual_end),off:r.off_days||[],since:r.created_at?dkey(new Date(r.created_at)):null});
 const nRoster=r=>({id:String(r.day).slice(0,10)+'_'+r.staff_id,staffId:r.staff_id,date:String(r.day).slice(0,10),kind:r.kind,start:t5(r.start_t),end:t5(r.end_t),byStaff:!!r.by_staff});
 const nPunch=r=>({id:String(r.day).slice(0,10)+'_'+r.staff_id,staffId:r.staff_id,date:String(r.day).slice(0,10),inAt:r.in_at,outAt:r.out_at,lateMin:r.late_min||0});
 const nNotice=r=>({id:r.id,text:r.body,type:r.type,shopId:r.shop_id||'all',at:Date.parse(r.created_at)});
@@ -363,7 +363,7 @@ async function loadAdmin(){
   const rf=dkey(addDays(td,-7))<monthStart?dkey(addDays(td,-7)):monthStart;
   const res=await Promise.all([
     q(sb.from('shops').select('*').order('created_at')),
-    q(sb.from('staff').select('id,name,shop_id,role,usual_start,usual_end,off_days').eq('active',true)),
+    q(sb.from('staff').select('id,name,shop_id,role,usual_start,usual_end,off_days,created_at').eq('active',true)),
     q(sb.from('roster').select('*').gte('day',rf)),
     q(sb.from('punches').select('*').gte('day',monthStart)),
     q(sb.from('notices').select('*').order('created_at',{ascending:false}).limit(100)),
@@ -433,7 +433,21 @@ function status(st){
   if(p&&p.inAt)return p.lateMin>0?{k:'late',label:'Late '+p.lateMin+' min',cls:'warn',p,sh}:{k:'on',label:'On shift',cls:'ok',p,sh};
   if(n<start)return {k:'soon',label:'Starts '+sh.start,cls:'mute',sh};
   if(n<=start+grace)return {k:'due',label:'Due now',cls:'info',sh};
+  if(sh.end&&n>=mins(sh.end))return {k:'absent',label:'Absent',cls:'bad',sh};
   return {k:'missing',label:'Not in, '+(n-start)+' min late',cls:'bad',sh};
+}
+/* days this month (before today) the person was scheduled but never clocked in, plus today if the shift is over */
+function absentDays(st){
+  const t=today();const ms=t.slice(0,8)+'01';let n=0;
+  for(let d=pd(ms);dkey(d)<t;d=addDays(d,1)){
+    const k=dkey(d);
+    if(st.since&&k<=st.since)continue;
+    const sh=shiftOn(st,k);
+    if(sh.off)continue;
+    if(!punchFor(st.id,k)||!punchFor(st.id,k).inAt)n++;
+  }
+  if(status(st).k==='absent')n++;
+  return n;
 }
 function mode(){
   if(S.admin)return 'admin';
@@ -492,11 +506,11 @@ function renderBoard(){
   $('#boardFilter').innerHTML=S.admin&&D.shops.length>1?['<button class="fchip" data-shopf="all" aria-pressed="'+(S.boardShop==='all')+'">All shops</button>']
     .concat(D.shops.map(s=>'<button class="fchip" data-shopf="'+esc(s.id)+'" aria-pressed="'+(S.boardShop===s.id)+'">'+esc(s.name)+'</button>')).join(''):'';
   const shops=D.shops.filter(s=>filt==='all'||s.id===filt);
-  const counts={on:0,late:0,missing:0,off:0};let html='';
+  const counts={on:0,late:0,missing:0,absent:0,off:0};let html='';
   shops.forEach(shop=>{
     const rows=D.staff.filter(s=>s.shopId===shop.id).map(s=>({s,x:status(s)}))
       .sort((a,b)=>(a.x.sh.off?1:0)-(b.x.sh.off?1:0)||mins(a.x.sh.start||'00:00')-mins(b.x.sh.start||'00:00')||byName(a.s,b.s));
-    rows.forEach(r=>{const k=r.x.k;if(k==='on'||k==='done')counts.on++;else if(k==='late')counts.late++;else if(k==='missing')counts.missing++;else if(k==='off')counts.off++});
+    rows.forEach(r=>{const k=r.x.k;if(k==='on'||k==='done')counts.on++;else if(k==='late')counts.late++;else if(k==='missing')counts.missing++;else if(k==='absent')counts.absent++;else if(k==='off')counts.off++});
     const ht=shopTimes(shop,today());
     html+='<div class="shophead"><h3>'+esc(shop.name)+'</h3><span>Open '+esc(ht.open)+' to '+esc(ht.close)+'</span></div><div class="card" style="padding:4px 16px">';
     html+=rows.length?rows.map(({s,x})=>{
@@ -514,13 +528,14 @@ function renderBoard(){
     '<div class="tile ok"><b>'+counts.on+'</b><span>On shift</span></div>'+
     '<div class="tile warn"><b>'+counts.late+'</b><span>Came late</span></div>'+
     '<div class="tile bad"><b>'+counts.missing+'</b><span>Not in yet</span></div>'+
+    '<div class="tile bad"><b>'+counts.absent+'</b><span>Absent</span></div>'+
     '<div class="tile"><b>'+counts.off+'</b><span>Off today</span></div>';
   const rep=D.staff.filter(s=>filt==='all'||s.shopId===filt).map(s=>{
     const ps=D.punches.filter(p=>p.staffId===s.id&&p.inAt);const late=ps.filter(p=>p.lateMin>0);
-    return {s,days:ps.length,late:late.length,mins:late.reduce((a,p)=>a+p.lateMin,0)};
-  }).sort((a,b)=>b.late-a.late||b.mins-a.mins||byName(a.s,b.s));
-  $('#report').innerHTML=rep.length?'<table><thead><tr><th>Employee</th><th class="n">Days in</th><th class="n">Late</th><th class="n">Min late</th></tr></thead><tbody>'+
-    rep.map(r=>'<tr><td>'+esc(r.s.name)+'<div class="sub">'+esc((shopOf(r.s.shopId)||{}).name||'')+'</div></td><td class="n">'+r.days+'</td><td class="n">'+r.late+'</td><td class="n">'+r.mins+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">Nothing to report yet.</div>';
+    return {s,days:ps.length,late:late.length,mins:late.reduce((a,p)=>a+p.lateMin,0),absent:absentDays(s)};
+  }).sort((a,b)=>b.absent-a.absent||b.late-a.late||b.mins-a.mins||byName(a.s,b.s));
+  $('#report').innerHTML=rep.length?'<table><thead><tr><th>Employee</th><th class="n">Days in</th><th class="n">Late</th><th class="n">Min late</th><th class="n">Absent</th></tr></thead><tbody>'+
+    rep.map(r=>'<tr><td>'+esc(r.s.name)+'<div class="sub">'+esc((shopOf(r.s.shopId)||{}).name||'')+'</div></td><td class="n">'+r.days+'</td><td class="n">'+r.late+'</td><td class="n">'+r.mins+'</td><td class="n">'+r.absent+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">Nothing to report yet.</div>';
   const pv=S.photoView;
   $('#photoView').innerHTML=pv?'<div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">'+esc(pv.title)+'</h2><button class="btn small ghost" data-act="closephoto">Close</button></div>'+
     (pv.loading?'<div class="empty">Loading...</div>':pv.imgs.length?'<div class="photos">'+pv.imgs.map(i=>'<figure style="margin:0"><img alt="'+esc(i.label)+'" src="'+esc(i.img)+'"><figcaption class="sub">'+esc(i.label)+'</figcaption></figure>').join('')+'</div>':'<div class="empty">No photos found.</div>')+'</div>':'';
